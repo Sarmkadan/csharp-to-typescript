@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/csharp-to-typescript/">
+    <Project Path="src/csharp-to-typescript/CSharpToTypeScript.csproj" />
+  </Folder>
+  <Folder Name="/tests/" />
+  <Folder Name="/tests/csharp-to-typescript.Tests/">
+    <Project Path="tests/csharp-to-typescript.Tests/CSharpToTypeScript.Tests.csproj" />
+  </Folder>
+</Solution>
