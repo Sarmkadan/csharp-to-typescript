@@ -174,6 +174,193 @@ With `true`, the `| null` is dropped, so a `null` value from the server is no lo
 | `Emit.TypeScriptEmitter` | Renders `interface`, `enum` and whole files |
 | `TypeScriptGenerator` | The `IIncrementalGenerator` |
 
+## Attributes
+
+`[TypeScriptExport]` takes three named arguments. `[TypeScriptIgnore]` goes on a property or field.
+
+| Argument | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `Name` | `string` | The C# type name | TypeScript name of the declaration. |
+| `OutputFile` | `string` | `CSharpToTypeScript_OutputFile` | File that receives this type, relative to the project directory. |
+| `Export` | `bool` | `true` | `false` omits the `export` keyword. |
+
+The snippets below show only the declarations. Each generated file also starts with the auto-generated banner.
+
+### Rename with `Name`
+
+```csharp
+[TypeScriptExport(Name = "Order")]
+public class OrderDto
+{
+    public Guid Id { get; set; }
+}
+```
+
+```ts
+export interface Order {
+  id: string;
+}
+```
+
+### Route to another file with `OutputFile`
+
+```csharp
+[TypeScriptExport(OutputFile = "admin/types.ts")]
+public class AdminUserDto
+{
+    public string Login { get; set; } = "";
+}
+```
+
+Written to `admin/types.ts`, not to the default file:
+
+```ts
+export interface AdminUserDto {
+  login: string;
+}
+```
+
+### Drop the `export` keyword with `Export = false`
+
+```csharp
+[TypeScriptExport(Export = false)]
+public class DraftDto
+{
+    public string Title { get; set; } = "";
+}
+```
+
+```ts
+interface DraftDto {
+  title: string;
+}
+```
+
+### Drop a property with `[TypeScriptIgnore]`
+
+```csharp
+[TypeScriptExport]
+public class UserDto
+{
+    public string Email { get; set; } = "";
+
+    [TypeScriptIgnore]
+    public string PasswordHash { get; set; } = "";
+}
+```
+
+```ts
+export interface UserDto {
+  email: string;
+}
+```
+
+### Inheritance
+
+- **Exported base** (any type with `[TypeScriptExport]`, including `Export = false`): the derived declaration uses `extends`, and the base's members are not repeated.
+- **Non-exported base**: the base's public members are copied into the derived declaration, base members first.
+
+```csharp
+[TypeScriptExport]
+public class BaseDto
+{
+    public Guid Id { get; set; }
+}
+
+[TypeScriptExport]
+public class OrderDto : BaseDto
+{
+    public string Customer { get; set; } = "";
+}
+```
+
+```ts
+export interface BaseDto {
+  id: string;
+}
+
+export interface OrderDto extends BaseDto {
+  customer: string;
+}
+```
+
+```csharp
+public class AuditBase
+{
+    public DateTime CreatedAt { get; set; }
+}
+
+[TypeScriptExport]
+public class OrderDto : AuditBase
+{
+    public Guid Id { get; set; }
+}
+```
+
+```ts
+// AuditBase is still emitted as its own declaration, see transitive export below.
+export interface AuditBase {
+  createdAt: string;
+}
+
+export interface OrderDto {
+  createdAt: string;
+  id: string;
+}
+```
+
+### Transitive export
+
+Types referenced by an exported type are emitted automatically, with no attribute needed. This covers property types, array and list element types, tuple elements, the underlying type of `Nullable<T>`, and base types.
+
+```csharp
+[TypeScriptExport]
+public class OrderDto
+{
+    public Status State { get; set; }
+    public List<LineDto> Lines { get; set; } = new();
+}
+
+public class LineDto
+{
+    public string Sku { get; set; } = "";
+}
+
+public enum Status { Pending, Paid }
+```
+
+```ts
+export type Status = "Pending" | "Paid";
+
+export interface LineDto {
+  sku: string;
+}
+
+export interface OrderDto {
+  state: Status;
+  lines: LineDto[];
+}
+```
+
+A transitively reached type goes to the default `OutputFile` (`CSharpToTypeScript_OutputFile`), not to the file of the type that references it. The generator emits no `import` lines. So if an exported type routed to `admin/types.ts` references a type without its own `OutputFile`, the reference cannot be resolved from `admin/types.ts`. Either keep both types in the default file, or give the referenced type its own `[TypeScriptExport(OutputFile = ...)]` pointing at the same file as the referrer.
+
+## Diagnostics
+
+The generator reports these during `dotnet build`. Each diagnostic's help link points to this section.
+
+| Id | Severity | Meaning | Fix |
+| --- | --- | --- | --- |
+| `CSTS001` | Warning | An exported type uses an unsupported construct. Open generic definitions such as `class Box<T>` are not emitted. | Export a non-generic type instead, or remove `[TypeScriptExport]` from the generic class. |
+| `CSTS002` | Error | Two exported types in the same output file resolve to the same TypeScript name. The name is the `Name` argument, or the C# name when `Name` is not set. | Set `Name = "..."` on one of them. The same name in a different `OutputFile` does not conflict. |
+| `CSTS003` | Warning | The `.ts` file could not be written, either because the write failed or because the generator threw. The message gives the path and the reason. | Check the path in the message: its directory must be writable, and the file must not be read-only or locked by another program. The content is still in the C# constant `CSharpToTypeScript.Generated.TypeScriptOutput_*` (`Content`). |
+| `CSTS004` | Warning | A `CSharpToTypeScript_*` property has a value that cannot be parsed. The default is used, and the message names it. | Use an accepted value. `NamingPolicy`: `Unchanged`, `CamelCase`, `SnakeCase`. `EnumStyle`: `NumericEnum`, `StringEnum`, `StringUnion`. `NullableAsOptional` and `DateAsString`: `true` or `false`. `OutputFile`: a non-blank path without invalid path characters. Enum and boolean values are case-insensitive. |
+
+Pointer types (for example `int*`) are not checked yet. Such a member is written as `p: ;`, which is invalid TypeScript, and no diagnostic is reported. Mark the member with `[TypeScriptIgnore]` until this is fixed.
+
+## How it works
+
+The generator is an `IIncrementalGenerator`. It registers `ForAttributeWithMetadataName` for `CSharpToTypeScript.TypeScriptExportAttribute`, so only annotated declarations enter the pipeline. Their transitive closure is emitted as one TypeScript file per output path. During compilation the content is added in two forms: as a C# constant in the `CSharpToTypeScript.Generated` namespace (`TypeScriptOutput_*`, with `Path` and `Content`), and as the file itself at `$(ProjectDir)/<OutputFile>`. The file is rewritten only when its content changes. Either commit the generated `.ts` file, so contract changes show up in review diffs, or add it to `.gitignore` if the frontend build always regenerates it.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
