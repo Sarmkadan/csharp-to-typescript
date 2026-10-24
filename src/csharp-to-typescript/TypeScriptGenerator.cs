@@ -107,6 +107,16 @@ public sealed class TypeScriptGenerator : IIncrementalGenerator
 
                 var content = emitter.EmitFile(group.ToList());
                 context.AddSource(HintNameFor(target), BuildSource(target, content));
+
+                if (options.ProjectDir is not null
+                    && !TypeScriptOutputWriter.TryWrite(options.ProjectDir, target, content, out _, out var error))
+                {
+                    context.ReportDiagnostic(Diagnostics.Create(
+                        Diagnostics.OutputWriteFailed,
+                        null,
+                        target,
+                        error ?? "unknown error"));
+                }
             }
         }
         catch (Exception exception)

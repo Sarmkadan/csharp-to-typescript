@@ -47,6 +47,13 @@ public sealed class GeneratorOptions
     /// </summary>
     public string OutputFile { get; set; } = "Generated/types.ts";
 
+    /// <summary>
+    /// Gets the consuming project directory (MSBuild <c>ProjectDir</c>, read from <c>build_property.projectdir</c>).
+    /// When set, the generator writes each output file to disk under this directory; when <c>null</c>, it only adds
+    /// the generated C# source.
+    /// </summary>
+    public string? ProjectDir { get; set; }
+
     /// <summary>Gets the member naming policy. Defaults to <see cref="PropertyNamingPolicy.CamelCase"/>.</summary>
     public PropertyNamingPolicy NamingPolicy { get; set; } = PropertyNamingPolicy.CamelCase;
 
@@ -75,6 +82,12 @@ public sealed class GeneratorOptions
         if (ReadValue(tryGetValue, nameof(OutputFile)) is string outputFile)
         {
             options.OutputFile = outputFile;
+        }
+
+        // ProjectDir is a standard MSBuild property, not a CSharpToTypeScript_* one, so it is read by its raw key.
+        if (tryGetValue("build_property.projectdir") is string projectDir && projectDir.Trim().Length > 0)
+        {
+            options.ProjectDir = projectDir.Trim();
         }
 
         if (ReadEnum<PropertyNamingPolicy>(tryGetValue, nameof(NamingPolicy)) is PropertyNamingPolicy namingPolicy)
