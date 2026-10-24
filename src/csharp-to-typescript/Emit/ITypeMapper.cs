@@ -16,6 +16,8 @@ public interface ITypeMapper
     /// <param name="type">The C# type symbol.</param>
     /// <param name="nullableAnnotation">Nullable annotation from the declaring member, if any.</param>
     /// <returns>A TypeScript type expression, never <see langword="null"/>.</returns>
+    /// <exception cref="System.ArgumentNullException"><paramref name="type"/> is <see langword="null"/>.</exception>
+    /// <exception cref="System.ArgumentException"><paramref name="type"/> is an <see cref="IErrorTypeSymbol"/>, i.e. the compiler could not resolve it.</exception>
     string Map(ITypeSymbol type, NullableAnnotation nullableAnnotation = NullableAnnotation.None);
 
     /// <summary>
@@ -25,12 +27,15 @@ public interface ITypeMapper
     /// </summary>
     /// <param name="type">The C# type symbol.</param>
     /// <param name="annotation">Nullable annotation from the declaring member, if any.</param>
+    /// <exception cref="System.ArgumentNullException"><paramref name="type"/> is <see langword="null"/>.</exception>
     bool IsNullable(ITypeSymbol type, NullableAnnotation annotation);
 
     /// <summary>
     /// Returns <see langword="true"/> if <paramref name="type"/> is a user type that must itself be exported
     /// (i.e. is not a primitive, collection or well-known BCL type).
     /// </summary>
+    /// <param name="type">The C# type symbol.</param>
+    /// <exception cref="System.ArgumentNullException"><paramref name="type"/> is <see langword="null"/>.</exception>
     bool RequiresExport(ITypeSymbol type);
 
     /// <summary>
@@ -40,6 +45,7 @@ public interface ITypeMapper
     /// </summary>
     /// <param name="type">The C# type symbol whose references are wanted.</param>
     /// <returns>Lazily enumerated user types, possibly containing duplicates.</returns>
+    /// <exception cref="System.ArgumentNullException"><paramref name="type"/> is <see langword="null"/>. Thrown when this method is called, not on first enumeration.</exception>
     IEnumerable<ITypeSymbol> GetReferencedUserTypes(ITypeSymbol type);
 }
 
@@ -87,6 +93,16 @@ public sealed class DefaultTypeMapper : ITypeMapper
     /// <inheritdoc />
     public string Map(ITypeSymbol type, NullableAnnotation nullableAnnotation = NullableAnnotation.None)
     {
+        if (type is null)
+        {
+            throw new System.ArgumentNullException(nameof(type));
+        }
+
+        if (type is IErrorTypeSymbol)
+        {
+            throw new System.ArgumentException($"Cannot map unresolved type '{type.ToDisplayString()}'");
+        }
+
         var mapped = MapCore(type);
 
         if (IsNullable(type, nullableAnnotation) && !_options.NullableAsOptional)
@@ -98,14 +114,26 @@ public sealed class DefaultTypeMapper : ITypeMapper
     }
 
     /// <inheritdoc />
-    public bool IsNullable(ITypeSymbol type, NullableAnnotation annotation) =>
-        IsNullableValueType(type)
-        || type.NullableAnnotation == NullableAnnotation.Annotated
-        || annotation == NullableAnnotation.Annotated;
+    public bool IsNullable(ITypeSymbol type, NullableAnnotation annotation)
+    {
+        if (type is null)
+        {
+            throw new System.ArgumentNullException(nameof(type));
+        }
+
+        return IsNullableValueType(type)
+            || type.NullableAnnotation == NullableAnnotation.Annotated
+            || annotation == NullableAnnotation.Annotated;
+    }
 
     /// <inheritdoc />
     public bool RequiresExport(ITypeSymbol type)
     {
+        if (type is null)
+        {
+            throw new System.ArgumentNullException(nameof(type));
+        }
+
         // Nullable<T> and arrays are transparent: whether they need export depends only on the wrapped type.
         if (type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable)
         {
@@ -150,6 +178,17 @@ public sealed class DefaultTypeMapper : ITypeMapper
     /// <inheritdoc />
     public IEnumerable<ITypeSymbol> GetReferencedUserTypes(ITypeSymbol type)
     {
+        // Validated eagerly here; the iterator below only runs on first enumeration.
+        if (type is null)
+        {
+            throw new System.ArgumentNullException(nameof(type));
+        }
+
+        return EnumerateReferencedUserTypes(type);
+    }
+
+    private IEnumerable<ITypeSymbol> EnumerateReferencedUserTypes(ITypeSymbol type)
+    {
         foreach (var nested in NestedTypes(type))
         {
             if (RequiresExport(nested))
@@ -158,7 +197,7 @@ public sealed class DefaultTypeMapper : ITypeMapper
                 continue;
             }
 
-            foreach (var inner in GetReferencedUserTypes(nested))
+            foreach (var inner in EnumerateReferencedUserTypes(nested))
             {
                 yield return inner;
             }
