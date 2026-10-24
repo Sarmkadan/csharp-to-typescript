@@ -1,0 +1,20 @@
+<Project>
+
+  <ItemGroup>
+    <CompilerVisibleProperty Include="CSharpToTypeScript_OutputFile" />
+    <CompilerVisibleProperty Include="CSharpToTypeScript_NamingPolicy" />
+    <CompilerVisibleProperty Include="CSharpToTypeScript_EnumStyle" />
+    <CompilerVisibleProperty Include="CSharpToTypeScript_NullableAsOptional" />
+    <CompilerVisibleProperty Include="CSharpToTypeScript_DateAsString" />
+    <CompilerVisibleProperty Include="ProjectDir" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <CSharpToTypeScript_OutputFile Condition="'$(CSharpToTypeScript_OutputFile)' == ''">Generated/types.ts</CSharpToTypeScript_OutputFile>
+    <CSharpToTypeScript_NamingPolicy Condition="'$(CSharpToTypeScript_NamingPolicy)' == ''">CamelCase</CSharpToTypeScript_NamingPolicy>
+    <CSharpToTypeScript_EnumStyle Condition="'$(CSharpToTypeScript_EnumStyle)' == ''">StringUnion</CSharpToTypeScript_EnumStyle>
+    <CSharpToTypeScript_NullableAsOptional Condition="'$(CSharpToTypeScript_NullableAsOptional)' == ''">false</CSharpToTypeScript_NullableAsOptional>
+    <CSharpToTypeScript_DateAsString Condition="'$(CSharpToTypeScript_DateAsString)' == ''">true</CSharpToTypeScript_DateAsString>
+  </PropertyGroup>
+
+</Project>

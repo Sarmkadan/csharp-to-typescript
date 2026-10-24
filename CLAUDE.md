@@ -17,6 +17,9 @@ dotnet pack src/csharp-to-typescript -c Release -o artifacts
   - `TypeScriptGenerator.cs` - `IIncrementalGenerator` entry point, diagnostics `CSTS001`, `CSTS002`.
   - `GeneratorOptions.cs` - options resolved from MSBuild `CSharpToTypeScript_*` properties.
   - `Abstractions/` - `[TypeScriptExport]`, `[TypeScriptIgnore]` attributes (also shipped to consumers).
+  - `build/` - `CSharpToTypeScript.Generator.props`, packed to `build/` and `buildTransitive/`. Declares the
+    `CSharpToTypeScript_*` properties and `ProjectDir` as `CompilerVisibleProperty` (so they reach the generator as
+    `build_property.*`) and sets their defaults, each guarded by `Condition="'$(Prop)' == ''"`.
   - `Emit/ITypeMapper.cs` - C# type symbol -> TS type expression.
   - `Emit/TypeScriptEmitter.cs` - renders declarations and whole files.
 - `tests/csharp-to-typescript.Tests/` - xunit (net10.0). Generator tests should drive `CSharpGeneratorDriver`
