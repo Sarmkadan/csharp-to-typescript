@@ -218,19 +218,13 @@ public sealed class TypeScriptEmitter
             .ToList();
 
         var builder = new StringBuilder();
-        builder.Append(Header).Append('\n');
+        builder.Append(Header);
 
-        // Every declaration ends with '\n', so one extra '\n' between them yields exactly one blank line.
-        var first = true;
+        // Every declaration ends with '\n'; a leading '\n' before each one yields exactly one blank line between
+        // declarations and between the header and the first one. An empty file therefore ends at the header.
         foreach (var declaration in enums.Select(EmitEnum).Concat(interfaces.Select(EmitInterface)))
         {
-            if (!first)
-            {
-                builder.Append('\n');
-            }
-
-            builder.Append(declaration);
-            first = false;
+            builder.Append('\n').Append(declaration);
         }
 
         return builder.ToString();
