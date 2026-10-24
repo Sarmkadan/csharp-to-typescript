@@ -17,6 +17,15 @@ public interface ITypeMapper
     string Map(ITypeSymbol type, NullableAnnotation nullableAnnotation = NullableAnnotation.None);
 
     /// <summary>
+    /// Returns <see langword="true"/> if a member of <paramref name="type"/> with the given annotation is nullable,
+    /// i.e. it is a <c>Nullable&lt;T&gt;</c> or carries a <c>?</c> annotation. The emitter uses this to decide
+    /// whether to emit an optional member (<c>name?: T</c>) when <see cref="GeneratorOptions.NullableAsOptional"/> is set.
+    /// </summary>
+    /// <param name="type">The C# type symbol.</param>
+    /// <param name="annotation">Nullable annotation from the declaring member, if any.</param>
+    bool IsNullable(ITypeSymbol type, NullableAnnotation annotation);
+
+    /// <summary>
     /// Returns <see langword="true"/> if <paramref name="type"/> is a user type that must itself be exported
     /// (i.e. is not a primitive, collection or well-known BCL type).
     /// </summary>
@@ -44,13 +53,19 @@ public sealed class DefaultTypeMapper : ITypeMapper
     {
         var mapped = MapCore(type);
 
-        if (nullableAnnotation == NullableAnnotation.Annotated && !_options.NullableAsOptional)
+        if (IsNullable(type, nullableAnnotation) && !_options.NullableAsOptional)
         {
             mapped += " | null";
         }
 
         return mapped;
     }
+
+    /// <inheritdoc />
+    public bool IsNullable(ITypeSymbol type, NullableAnnotation annotation) =>
+        IsNullableValueType(type)
+        || type.NullableAnnotation == NullableAnnotation.Annotated
+        || annotation == NullableAnnotation.Annotated;
 
     /// <inheritdoc />
     public bool RequiresExport(ITypeSymbol type)
@@ -81,6 +96,12 @@ public sealed class DefaultTypeMapper : ITypeMapper
     /// </summary>
     private string MapCore(ITypeSymbol type)
     {
+        // Nullability is applied by Map(); here Nullable<T> is unwrapped to its underlying type.
+        if (type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable)
+        {
+            return MapCore(nullable.TypeArguments[0]);
+        }
+
         switch (type.SpecialType)
         {
             case SpecialType.System_String:
@@ -163,6 +184,9 @@ public sealed class DefaultTypeMapper : ITypeMapper
     private string MapElement(ITypeSymbol element) => Map(element, element.NullableAnnotation);
 
     private static string WrapElement(string element) => element.Contains(" | ") ? $"({element})" : element;
+
+    private static bool IsNullableValueType(ITypeSymbol type) =>
+        type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T };
 
     /// <summary>
     /// Finds a generic type or interface by its <see cref="ISymbol.OriginalDefinition"/> display string, checking
