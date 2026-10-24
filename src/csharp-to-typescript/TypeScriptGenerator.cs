@@ -21,6 +21,12 @@ public sealed class TypeScriptGenerator : IIncrementalGenerator
     /// <summary>Diagnostic id: two exported types resolve to the same TypeScript name.</summary>
     public const string DuplicateNameDiagnosticId = "CSTS002";
 
+    /// <summary>Diagnostic id: the generated output file could not be written to disk.</summary>
+    public const string OutputWriteFailedDiagnosticId = "CSTS003";
+
+    /// <summary>Diagnostic id: a <c>CSharpToTypeScript_*</c> option has an invalid value and the default is used.</summary>
+    public const string InvalidOptionDiagnosticId = "CSTS004";
+
     /// <inheritdoc />
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
