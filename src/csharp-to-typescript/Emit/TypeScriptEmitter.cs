@@ -61,13 +61,15 @@ public sealed class TypeScriptEmitter
             .Select(member => member.Line)
             .ToList();
 
+        ResolveExportInfo(type, out var name, out var export);
+
         var builder = new StringBuilder();
-        if (IsExported(type))
+        if (export)
         {
             builder.Append("export ");
         }
 
-        builder.Append("interface ").Append(ResolveTypeName(type));
+        builder.Append("interface ").Append(name);
         if (extends is not null)
         {
             builder.Append(" extends ").Append(extends);
@@ -96,7 +98,56 @@ public sealed class TypeScriptEmitter
     /// <returns>TypeScript source for the single declaration, including trailing newline.</returns>
     public string EmitEnum(INamedTypeSymbol enumType)
     {
-        throw new System.NotImplementedException();
+        ResolveExportInfo(enumType, out var name, out var export);
+        var prefix = export ? "export " : string.Empty;
+
+        var fields = enumType.GetMembers().OfType<IFieldSymbol>()
+            .Where(field => field.HasConstantValue && !IsIgnored(field))
+            .ToList();
+
+        var builder = new StringBuilder();
+        switch (_options.EnumStyle)
+        {
+            case EnumStyle.StringUnion:
+                var union = fields.Count == 0
+                    ? "never"
+                    : string.Join(" | ", fields.Select(field => $"\"{field.Name}\""));
+                builder.Append(prefix).Append("type ").Append(name).Append(" = ").Append(union).Append(";\n");
+                break;
+
+            case EnumStyle.StringEnum:
+                AppendEnumBody(builder, prefix, name, fields.Select(field => $"  {field.Name} = \"{field.Name}\","));
+                break;
+
+            default:
+                AppendEnumBody(
+                    builder,
+                    prefix,
+                    name,
+                    fields.Select(field => $"  {field.Name} = {System.Convert.ToInt64(field.ConstantValue)},"));
+                break;
+        }
+
+        return builder.ToString();
+    }
+
+    private static void AppendEnumBody(StringBuilder builder, string prefix, string name, IEnumerable<string> lines)
+    {
+        var members = lines.ToList();
+        builder.Append(prefix).Append("enum ").Append(name);
+        if (members.Count == 0)
+        {
+            builder.Append(" {}\n");
+            return;
+        }
+
+        builder.Append(" {\n");
+        foreach (var line in members)
+        {
+            builder.Append(line).Append('\n');
+        }
+
+        builder.Append("}\n");
     }
 
     /// <summary>
@@ -181,6 +232,15 @@ public sealed class TypeScriptEmitter
         type.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass?.ToDisplayString() == TypeScriptGenerator.ExportAttributeFullName);
 
     private static bool HasExportAttribute(INamedTypeSymbol type) => FindExportAttribute(type) is not null;
+
+    /// <summary>
+    /// Resolves the TypeScript declaration name and whether it carries the <c>export</c> prefix.
+    /// </summary>
+    private static void ResolveExportInfo(INamedTypeSymbol type, out string name, out bool export)
+    {
+        name = ResolveTypeName(type);
+        export = IsExported(type);
+    }
 
     /// <summary>
     /// Returns the <c>Export</c> named argument of <c>[TypeScriptExport]</c>, defaulting to <see langword="true"/>.
