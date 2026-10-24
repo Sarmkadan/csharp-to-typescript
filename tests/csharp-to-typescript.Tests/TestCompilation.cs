@@ -21,6 +21,8 @@ internal static class TestCompilation
             MetadataReference.CreateFromFile(Assembly.Load("System.Runtime").Location),
             MetadataReference.CreateFromFile(Assembly.Load("System.Collections").Location),
             MetadataReference.CreateFromFile(Assembly.Load("System.Linq").Location),
+            // The generator assembly targets netstandard2.0, so its attribute base type is forwarded through netstandard.
+            MetadataReference.CreateFromFile(Assembly.Load("netstandard").Location),
             MetadataReference.CreateFromFile(typeof(TypeScriptExportAttribute).Assembly.Location),
         };
 
