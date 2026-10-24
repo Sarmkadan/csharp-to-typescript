@@ -32,6 +32,15 @@ public interface ITypeMapper
     /// (i.e. is not a primitive, collection or well-known BCL type).
     /// </summary>
     bool RequiresExport(ITypeSymbol type);
+
+    /// <summary>
+    /// Yields the user types referenced by <paramref name="type"/> through its nested type arguments: element types of
+    /// arrays, generic type arguments, nullable underlying types and tuple elements. <paramref name="type"/> itself is not
+    /// yielded. Framework types in between are traversed, so <c>List&lt;Foo&gt;</c> yields <c>Foo</c>.
+    /// </summary>
+    /// <param name="type">The C# type symbol whose references are wanted.</param>
+    /// <returns>Lazily enumerated user types, possibly containing duplicates.</returns>
+    IEnumerable<ITypeSymbol> GetReferencedUserTypes(ITypeSymbol type);
 }
 
 /// <summary>
@@ -97,7 +106,96 @@ public sealed class DefaultTypeMapper : ITypeMapper
     /// <inheritdoc />
     public bool RequiresExport(ITypeSymbol type)
     {
-        throw new System.NotImplementedException();
+        // Nullable<T> and arrays are transparent: whether they need export depends only on the wrapped type.
+        if (type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable)
+        {
+            return RequiresExport(nullable.TypeArguments[0]);
+        }
+
+        if (type is IArrayTypeSymbol array)
+        {
+            return RequiresExport(array.ElementType);
+        }
+
+        if (type is IDynamicTypeSymbol or ITypeParameterSymbol)
+        {
+            return false;
+        }
+
+        if (type is INamedTypeSymbol { IsTupleType: true } tuple)
+        {
+            return tuple.TupleElements.Any(element => RequiresExport(element.Type));
+        }
+
+        if (type.SpecialType != SpecialType.None)
+        {
+            return false;
+        }
+
+        if (WellKnownTypes.ContainsKey(type.ToDisplayString()) || DateTypes.Contains(type.ToDisplayString()))
+        {
+            return false;
+        }
+
+        // Source-declared types are always user code; metadata types are user code unless they live in a framework namespace.
+        var isUserCode = type.Locations.Any(location => location.IsInSource) || !IsFrameworkNamespace(type);
+        if (!isUserCode)
+        {
+            return false;
+        }
+
+        return type.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface or TypeKind.Enum;
+    }
+
+    /// <inheritdoc />
+    public IEnumerable<ITypeSymbol> GetReferencedUserTypes(ITypeSymbol type)
+    {
+        foreach (var nested in NestedTypes(type))
+        {
+            if (RequiresExport(nested))
+            {
+                yield return nested;
+                continue;
+            }
+
+            foreach (var inner in GetReferencedUserTypes(nested))
+            {
+                yield return inner;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns the direct child types of a structural type: array element, tuple elements or generic type arguments.
+    /// </summary>
+    private static IEnumerable<ITypeSymbol> NestedTypes(ITypeSymbol type)
+    {
+        if (type is IArrayTypeSymbol array)
+        {
+            return new[] { array.ElementType };
+        }
+
+        if (type is INamedTypeSymbol { IsTupleType: true } tuple)
+        {
+            return tuple.TupleElements.Select(element => element.Type);
+        }
+
+        if (type is INamedTypeSymbol named)
+        {
+            return named.TypeArguments;
+        }
+
+        return Enumerable.Empty<ITypeSymbol>();
+    }
+
+    /// <summary>
+    /// True if the type's containing namespace is <c>System</c> or <c>Microsoft</c> or one of their sub-namespaces.
+    /// </summary>
+    private static bool IsFrameworkNamespace(ITypeSymbol type)
+    {
+        var ns = type.ContainingNamespace?.ToDisplayString() ?? string.Empty;
+        return ns == "System" || ns.StartsWith("System.", System.StringComparison.Ordinal)
+            || ns == "Microsoft" || ns.StartsWith("Microsoft.", System.StringComparison.Ordinal);
     }
 
     private static readonly string[] DictionaryTypes =
