@@ -33,8 +33,22 @@ public sealed class TypeScriptEmitter
     /// </summary>
     /// <param name="type">Named type marked with <see cref="TypeScriptExportAttribute"/>.</param>
     /// <returns>TypeScript source for the single declaration, including trailing newline.</returns>
+    /// <exception cref="System.ArgumentNullException"><paramref name="type"/> is <c>null</c>.</exception>
+    /// <exception cref="System.ArgumentException"><paramref name="type"/> is not a class, struct or interface.</exception>
     public string EmitInterface(INamedTypeSymbol type)
     {
+        if (type is null)
+        {
+            throw new System.ArgumentNullException(nameof(type));
+        }
+
+        if (type.TypeKind is not (TypeKind.Class or TypeKind.Struct or TypeKind.Interface))
+        {
+            throw new System.ArgumentException(
+                $"Expected a class, struct or interface but got TypeKind.{type.TypeKind}.",
+                nameof(type));
+        }
+
         var members = new List<(int Level, int Position, string CsName, string Line)>();
         var seen = new HashSet<string>(System.StringComparer.Ordinal);
         string? extends = null;
@@ -101,8 +115,22 @@ public sealed class TypeScriptEmitter
     /// </summary>
     /// <param name="enumType">Enum symbol marked with <see cref="TypeScriptExportAttribute"/>.</param>
     /// <returns>TypeScript source for the single declaration, including trailing newline.</returns>
+    /// <exception cref="System.ArgumentNullException"><paramref name="enumType"/> is <c>null</c>.</exception>
+    /// <exception cref="System.ArgumentException"><paramref name="enumType"/> is not an enum.</exception>
     public string EmitEnum(INamedTypeSymbol enumType)
     {
+        if (enumType is null)
+        {
+            throw new System.ArgumentNullException(nameof(enumType));
+        }
+
+        if (enumType.TypeKind != TypeKind.Enum)
+        {
+            throw new System.ArgumentException(
+                $"Expected an enum but got TypeKind.{enumType.TypeKind}.",
+                nameof(enumType));
+        }
+
         ResolveExportInfo(enumType, out var name, out var export);
         var prefix = export ? "export " : string.Empty;
 
@@ -160,8 +188,23 @@ public sealed class TypeScriptEmitter
     /// </summary>
     /// <param name="types">All exported symbols destined for one output file.</param>
     /// <returns>Full TypeScript file content.</returns>
+    /// <exception cref="System.ArgumentNullException"><paramref name="types"/> is <c>null</c>.</exception>
+    /// <exception cref="System.ArgumentException">An element of <paramref name="types"/> is <c>null</c>.</exception>
     public string EmitFile(IReadOnlyList<INamedTypeSymbol> types)
     {
+        if (types is null)
+        {
+            throw new System.ArgumentNullException(nameof(types));
+        }
+
+        for (var index = 0; index < types.Count; index++)
+        {
+            if (types[index] is null)
+            {
+                throw new System.ArgumentException($"Element at index {index} is null.", nameof(types));
+            }
+        }
+
         var unique = types.Distinct<INamedTypeSymbol>(SymbolEqualityComparer.Default).ToList();
 
         var enums = unique
