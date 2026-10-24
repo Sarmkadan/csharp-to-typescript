@@ -73,6 +73,96 @@ Optional MSBuild configuration in the consuming `.csproj`:
 </PropertyGroup>
 ```
 
+## Configuration
+
+Set these as `CSharpToTypeScript_*` properties in the consuming `.csproj`. Every option has a default, so the block above is optional.
+Invalid values are reported as `CSTS004` and the default is used.
+
+| MSBuild property | Values | Default | Effect |
+| --- | --- | --- | --- |
+| `CSharpToTypeScript_OutputFile` | Relative file path | `Generated/types.ts` | Output file, relative to the project directory. Backslashes are converted to `/`. |
+| `CSharpToTypeScript_NamingPolicy` | `Unchanged`, `CamelCase`, `SnakeCase` | `CamelCase` | Member names: `FirstName` stays `FirstName`, becomes `firstName`, or becomes `first_name`. |
+| `CSharpToTypeScript_EnumStyle` | `NumericEnum`, `StringEnum`, `StringUnion` | `StringUnion` | How enums are emitted. See [Enum styles](#enum-styles). |
+| `CSharpToTypeScript_NullableAsOptional` | `true`, `false` | `false` | `false` emits `name: T \| null`. `true` emits an optional member `name?: T`. See [Nullable handling](#nullable-handling). |
+| `CSharpToTypeScript_DateAsString` | `true`, `false` | `true` | `true` maps `DateTime`, `DateTimeOffset`, `DateOnly` and `TimeOnly` to `string` (ISO 8601). `false` maps them to `Date`. |
+
+### Type mapping
+
+| C# type | TypeScript |
+| --- | --- |
+| `string`, `char` | `string` |
+| `bool` | `boolean` |
+| `sbyte`, `byte`, `short`, `ushort`, `int`, `uint`, `long`, `ulong`, `float`, `double`, `decimal` | `number` |
+| `Guid`, `TimeSpan`, `Uri` | `string` |
+| `DateTime`, `DateTimeOffset`, `DateOnly`, `TimeOnly` | `string` when `DateAsString` is `true` (default), otherwise `Date` |
+| `byte[]` | `string` (base64) |
+| `T[]`, `List<T>`, `IEnumerable<T>` (also `IList<T>`, `IReadOnlyList<T>`, `HashSet<T>`) | `T[]` |
+| `Dictionary<K,V>` (also `IDictionary`, `IReadOnlyDictionary`) | `Record<K, V>`. The key is `number` for numeric keys and `string` otherwise. |
+| `Nullable<T>`, `T?` | `T \| null`, or optional `name?: T` with `NullableAsOptional` |
+| Tuples, e.g. `(string, int)` | `[string, number]` |
+| `object` | `unknown` |
+| `dynamic` | `any` |
+| Enums, e.g. `Color` | The enum's name, e.g. `Color` (declared per [Enum styles](#enum-styles)) |
+
+### Enum styles
+
+For `enum Color { Red, Green }`:
+
+`NumericEnum`:
+
+```ts
+export enum Color {
+  Red = 0,
+  Green = 1,
+}
+```
+
+`StringEnum`:
+
+```ts
+export enum Color {
+  Red = "Red",
+  Green = "Green",
+}
+```
+
+`StringUnion` (default):
+
+```ts
+export type Color = "Red" | "Green";
+```
+
+Options can also be set in an analyzer config file instead of the `.csproj`. The generator reads them as global options, so the entry goes in a global section:
+
+```ini
+is_global = true
+build_property.CSharpToTypeScript_EnumStyle = StringEnum
+```
+
+This works when the package's `build/` props are not imported. Those props set every option to its default in the same global config, which conflicts with the `.editorconfig` entry (MSBuild reports `MultipleGlobalAnalyzerKeys`), so the key is dropped and the default applies. With the package installed, set the value in the `.csproj`.
+
+### Nullable handling
+
+For `DateTime? ShippedAt` on `OrderDto`:
+
+`NullableAsOptional` is `false` (default):
+
+```ts
+export interface OrderDto {
+  shippedAt: string | null;
+}
+```
+
+`NullableAsOptional` is `true`:
+
+```ts
+export interface OrderDto {
+  shippedAt?: string;
+}
+```
+
+With `true`, the `| null` is dropped, so a `null` value from the server is no longer reflected in the type. The `?` only says the property may be absent.
+
 ## API overview
 
 | Member | Purpose |
