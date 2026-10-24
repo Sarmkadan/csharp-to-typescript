@@ -29,6 +29,11 @@ public static class NamingPolicyConverter
             throw new ArgumentNullException(nameof(name));
         }
 
+        if (!Enum.IsDefined(typeof(PropertyNamingPolicy), policy))
+        {
+            throw new ArgumentOutOfRangeException(nameof(policy), policy, "Unknown naming policy.");
+        }
+
         switch (policy)
         {
             case PropertyNamingPolicy.Unchanged:

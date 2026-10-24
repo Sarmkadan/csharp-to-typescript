@@ -41,11 +41,34 @@ public sealed class GeneratorOptions
     /// <summary>Default MSBuild property prefix.</summary>
     public const string MsBuildPrefix = "CSharpToTypeScript_";
 
+    private string _outputFile = "Generated/types.ts";
+    private PropertyNamingPolicy _namingPolicy = PropertyNamingPolicy.CamelCase;
+    private EnumStyle _enumStyle = EnumStyle.StringUnion;
+
     /// <summary>
-    /// Gets the default output path for generated declarations, relative to the project directory.
-    /// Defaults to <c>Generated/types.ts</c>.
+    /// Gets or sets the default output path for generated declarations, relative to the project directory.
+    /// Defaults to <c>Generated/types.ts</c>. Backslashes are normalised to <c>/</c>; rooted paths and <c>..</c>
+    /// segments are accepted.
     /// </summary>
-    public string OutputFile { get; set; } = "Generated/types.ts";
+    /// <exception cref="ArgumentException">
+    /// The value is <see langword="null"/>, empty or white space, or contains a character from
+    /// <see cref="System.IO.Path.GetInvalidPathChars"/>.
+    /// </exception>
+    public string OutputFile
+    {
+        get => _outputFile;
+        set
+        {
+            if (!IsValidOutputFile(value))
+            {
+                throw new ArgumentException(
+                    "Output file must not be null, empty or white space, and must not contain invalid path characters.",
+                    nameof(value));
+            }
+
+            _outputFile = value.Replace('\\', '/');
+        }
+    }
 
     /// <summary>
     /// Gets the consuming project directory (MSBuild <c>ProjectDir</c>, read from <c>build_property.projectdir</c>).
@@ -54,11 +77,37 @@ public sealed class GeneratorOptions
     /// </summary>
     public string? ProjectDir { get; set; }
 
-    /// <summary>Gets the member naming policy. Defaults to <see cref="PropertyNamingPolicy.CamelCase"/>.</summary>
-    public PropertyNamingPolicy NamingPolicy { get; set; } = PropertyNamingPolicy.CamelCase;
+    /// <summary>Gets or sets the member naming policy. Defaults to <see cref="PropertyNamingPolicy.CamelCase"/>.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The value is not a defined <see cref="PropertyNamingPolicy"/>.</exception>
+    public PropertyNamingPolicy NamingPolicy
+    {
+        get => _namingPolicy;
+        set
+        {
+            if (!System.Enum.IsDefined(typeof(PropertyNamingPolicy), value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), value, "Unknown naming policy.");
+            }
 
-    /// <summary>Gets the enum emission style. Defaults to <see cref="EnumStyle.StringUnion"/>.</summary>
-    public EnumStyle EnumStyle { get; set; } = EnumStyle.StringUnion;
+            _namingPolicy = value;
+        }
+    }
+
+    /// <summary>Gets or sets the enum emission style. Defaults to <see cref="EnumStyle.StringUnion"/>.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">The value is not a defined <see cref="EnumStyle"/>.</exception>
+    public EnumStyle EnumStyle
+    {
+        get => _enumStyle;
+        set
+        {
+            if (!System.Enum.IsDefined(typeof(EnumStyle), value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), value, "Unknown enum style.");
+            }
+
+            _enumStyle = value;
+        }
+    }
 
     /// <summary>
     /// Gets a value indicating whether nullable reference and value types are emitted as optional members
@@ -75,11 +124,18 @@ public sealed class GeneratorOptions
     /// </summary>
     /// <param name="tryGetValue">Lookup delegate; keys are passed with the <c>build_property.</c> prefix.</param>
     /// <returns>Resolved options with defaults for absent keys.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="tryGetValue"/> is <see langword="null"/>.</exception>
     public static GeneratorOptions FromAnalyzerConfig(System.Func<string, string?> tryGetValue)
     {
+        if (tryGetValue is null)
+        {
+            throw new ArgumentNullException(nameof(tryGetValue));
+        }
+
         var options = new GeneratorOptions();
 
-        if (ReadValue(tryGetValue, nameof(OutputFile)) is string outputFile)
+        // Values read from MSBuild that fail validation are ignored and the default kept, the same as unparsable enums.
+        if (ReadValue(tryGetValue, nameof(OutputFile)) is string outputFile && IsValidOutputFile(outputFile))
         {
             options.OutputFile = outputFile;
         }
@@ -128,11 +184,20 @@ public sealed class GeneratorOptions
         return trimmed.Length == 0 ? null : trimmed;
     }
 
+    /// <summary>
+    /// Returns <see langword="true"/> when <paramref name="value"/> is a non-blank path without characters from
+    /// <see cref="System.IO.Path.GetInvalidPathChars"/>.
+    /// </summary>
+    private static bool IsValidOutputFile(string? value) =>
+        value is not null && !string.IsNullOrWhiteSpace(value) && value.IndexOfAny(System.IO.Path.GetInvalidPathChars()) < 0;
+
     private static T? ReadEnum<T>(System.Func<string, string?> tryGetValue, string name)
         where T : struct
     {
         var value = ReadValue(tryGetValue, name);
-        if (value is not null && System.Enum.TryParse<T>(value, ignoreCase: true, out var parsed))
+        if (value is not null
+            && System.Enum.TryParse<T>(value, ignoreCase: true, out var parsed)
+            && System.Enum.IsDefined(typeof(T), parsed))
         {
             return parsed;
         }
