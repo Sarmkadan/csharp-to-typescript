@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.CodeAnalysis;
 
 namespace CSharpToTypeScript.Emit;
@@ -33,12 +35,37 @@ public interface ITypeMapper
 }
 
 /// <summary>
-/// Default <see cref="ITypeMapper"/> covering primitives, nullable value types, arrays,
-/// <c>IEnumerable&lt;T&gt;</c>, <c>IDictionary&lt;K,V&gt;</c>, <c>Guid</c>, <c>DateTime</c>/<c>DateTimeOffset</c>,
-/// <c>TimeSpan</c> and tuples.
+/// Default <see cref="ITypeMapper"/> covering primitives, nullable value types, arrays (<c>byte[]</c> as base64 string),
+/// <c>IEnumerable&lt;T&gt;</c>, <c>IDictionary&lt;K,V&gt;</c>, tuples, enums, <c>dynamic</c>, type parameters and
+/// well-known BCL types: <c>Guid</c>, <c>DateTime</c>/<c>DateTimeOffset</c>/<c>DateOnly</c>/<c>TimeOnly</c>,
+/// <c>TimeSpan</c>, <c>Uri</c>, <c>JsonElement</c> and <c>JsonNode</c>.
 /// </summary>
 public sealed class DefaultTypeMapper : ITypeMapper
 {
+    /// <summary>
+    /// Well-known BCL types with a fixed TypeScript mapping, keyed by the fully qualified display string (<c>ISymbol.ToDisplayString()</c>).
+    /// Date/time types are handled separately because they depend on <see cref="GeneratorOptions.DateAsString"/>.
+    /// </summary>
+    private static readonly Dictionary<string, string> WellKnownTypes = new Dictionary<string, string>
+    {
+        ["System.Guid"] = "string",
+        ["System.TimeSpan"] = "string",
+        ["System.Uri"] = "string",
+        ["System.Text.Json.JsonElement"] = "unknown",
+        ["System.Text.Json.Nodes.JsonNode"] = "unknown",
+    };
+
+    /// <summary>
+    /// Date/time types. Mapped to <c>string</c> (ISO 8601) when <see cref="GeneratorOptions.DateAsString"/> is set, otherwise to <c>Date</c>.
+    /// </summary>
+    private static readonly HashSet<string> DateTypes = new HashSet<string>
+    {
+        "System.DateTime",
+        "System.DateTimeOffset",
+        "System.DateOnly",
+        "System.TimeOnly",
+    };
+
     private readonly GeneratorOptions _options;
 
     /// <summary>Initializes a new mapper.</summary>
@@ -100,6 +127,44 @@ public sealed class DefaultTypeMapper : ITypeMapper
         if (type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable)
         {
             return MapCore(nullable.TypeArguments[0]);
+        }
+
+        if (type is IDynamicTypeSymbol)
+        {
+            return "any";
+        }
+
+        if (type is ITypeParameterSymbol)
+        {
+            return "unknown";
+        }
+
+        if (type.TypeKind == TypeKind.Enum)
+        {
+            return type.Name;
+        }
+
+        // byte[] is handled before the generic array branch in MapComposite: it is transported as base64.
+        if (type is IArrayTypeSymbol { ElementType.SpecialType: SpecialType.System_Byte })
+        {
+            return "string";
+        }
+
+        if (type is INamedTypeSymbol { IsTupleType: true } tuple)
+        {
+            return "[" + string.Join(", ", tuple.TupleElements.Select(element => MapElement(element.Type))) + "]";
+        }
+
+        var displayName = type.ToDisplayString();
+
+        if (DateTypes.Contains(displayName))
+        {
+            return _options.DateAsString ? "string" : "Date";
+        }
+
+        if (WellKnownTypes.TryGetValue(displayName, out var wellKnown))
+        {
+            return wellKnown;
         }
 
         switch (type.SpecialType)
