@@ -58,10 +58,28 @@ public sealed class DefaultTypeMapper : ITypeMapper
         throw new System.NotImplementedException();
     }
 
+    private static readonly string[] DictionaryTypes =
+    {
+        "System.Collections.Generic.IDictionary<TKey, TValue>",
+        "System.Collections.Generic.IReadOnlyDictionary<TKey, TValue>",
+    };
+
+    private static readonly string[] EnumerableTypes =
+    {
+        "System.Collections.Generic.IEnumerable<T>",
+        "System.Collections.Generic.ICollection<T>",
+        "System.Collections.Generic.IList<T>",
+        "System.Collections.Generic.IReadOnlyList<T>",
+        "System.Collections.Generic.IReadOnlyCollection<T>",
+        "System.Collections.Generic.List<T>",
+        "System.Collections.Generic.HashSet<T>",
+        "System.Collections.Generic.ISet<T>",
+    };
+
     /// <summary>
     /// Maps the type itself, without nullability. Constructs not handled yet fall back to the C# type name.
     /// </summary>
-    private static string MapCore(ITypeSymbol type)
+    private string MapCore(ITypeSymbol type)
     {
         switch (type.SpecialType)
         {
@@ -92,7 +110,86 @@ public sealed class DefaultTypeMapper : ITypeMapper
                 return "void";
 
             default:
-                return type.Name;
+                return MapComposite(type) ?? type.Name;
         }
+    }
+
+    /// <summary>
+    /// Maps arrays, dictionaries and collections. Returns <see langword="null"/> if <paramref name="type"/>
+    /// is none of these.
+    /// </summary>
+    private string? MapComposite(ITypeSymbol type)
+    {
+        if (type is IArrayTypeSymbol array)
+        {
+            return WrapElement(MapElement(array.ElementType)) + "[]";
+        }
+
+        if (type is not INamedTypeSymbol named)
+        {
+            return null;
+        }
+
+        if (!named.IsGenericType)
+        {
+            return named.ToDisplayString() == "System.Collections.IEnumerable" ? "unknown[]" : null;
+        }
+
+        // Dictionaries are enumerables too, so they have to be checked first.
+        foreach (var dictionaryType in DictionaryTypes)
+        {
+            if (TryGetGenericInterface(named, dictionaryType, out var dictionary))
+            {
+                var key = dictionary.TypeArguments[0];
+                var keyType = MapCore(key) == "number" ? "number" : "string";
+                return $"Record<{keyType}, {MapElement(dictionary.TypeArguments[1])}>";
+            }
+        }
+
+        foreach (var enumerableType in EnumerableTypes)
+        {
+            if (TryGetGenericInterface(named, enumerableType, out var enumerable))
+            {
+                return WrapElement(MapElement(enumerable.TypeArguments[0])) + "[]";
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Maps an element or value type, honouring its own nullable annotation (e.g. <c>string?</c> in <c>List&lt;string?&gt;</c>).
+    /// </summary>
+    private string MapElement(ITypeSymbol element) => Map(element, element.NullableAnnotation);
+
+    private static string WrapElement(string element) => element.Contains(" | ") ? $"({element})" : element;
+
+    /// <summary>
+    /// Finds a generic type or interface by its <see cref="ISymbol.OriginalDefinition"/> display string, checking
+    /// <paramref name="type"/> itself first and then its <c>AllInterfaces</c>.
+    /// </summary>
+    /// <param name="type">The type to search.</param>
+    /// <param name="metadataName">Display string of the open generic, e.g. <c>System.Collections.Generic.IList&lt;T&gt;</c>.</param>
+    /// <param name="result">The matching constructed type or interface, with the type arguments of <paramref name="type"/>.</param>
+    /// <returns><see langword="true"/> if a match was found.</returns>
+    private static bool TryGetGenericInterface(INamedTypeSymbol type, string metadataName, out INamedTypeSymbol result)
+    {
+        if (type.OriginalDefinition.ToDisplayString() == metadataName)
+        {
+            result = type;
+            return true;
+        }
+
+        foreach (var iface in type.AllInterfaces)
+        {
+            if (iface.OriginalDefinition.ToDisplayString() == metadataName)
+            {
+                result = iface;
+                return true;
+            }
+        }
+
+        result = null!;
+        return false;
     }
 }
