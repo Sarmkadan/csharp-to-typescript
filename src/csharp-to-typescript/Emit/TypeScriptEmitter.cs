@@ -48,7 +48,7 @@ public sealed class TypeScriptEmitter
                 break;
             }
 
-            if (level > 0 && HasExportAttribute(current))
+            if (level > 0 && ExportAttributeInfo.TryGet(current) is not null)
             {
                 extends = ResolveTypeName(current);
                 break;
@@ -261,48 +261,18 @@ public sealed class TypeScriptEmitter
     private static bool IsIgnored(ISymbol member) =>
         member.GetAttributes().Any(attribute => attribute.AttributeClass?.ToDisplayString() == "CSharpToTypeScript.TypeScriptIgnoreAttribute");
 
-    private static AttributeData? FindExportAttribute(INamedTypeSymbol type) =>
-        type.GetAttributes().FirstOrDefault(attribute => attribute.AttributeClass?.ToDisplayString() == TypeScriptGenerator.ExportAttributeFullName);
-
-    private static bool HasExportAttribute(INamedTypeSymbol type) => FindExportAttribute(type) is not null;
-
     /// <summary>
     /// Resolves the TypeScript declaration name and whether it carries the <c>export</c> prefix.
     /// </summary>
     private static void ResolveExportInfo(INamedTypeSymbol type, out string name, out bool export)
     {
         name = ResolveTypeName(type);
-        export = IsExported(type);
+        export = ExportAttributeInfo.TryGet(type)?.Export ?? true;
     }
 
     /// <summary>
-    /// Returns the <c>Export</c> named argument of <c>[TypeScriptExport]</c>, defaulting to <see langword="true"/>.
-    /// </summary>
-    private static bool IsExported(INamedTypeSymbol type) =>
-        GetExportNamedArgument(type, "Export") is not bool export || export;
-
-    /// <summary>
-    /// Returns the <c>Name</c> named argument of <c>[TypeScriptExport]</c>, falling back to the C# type name.
+    /// Returns the <c>Name</c> of <c>[TypeScriptExport]</c>, falling back to the C# type name.
     /// </summary>
     private static string ResolveTypeName(INamedTypeSymbol type) =>
-        GetExportNamedArgument(type, "Name") is string { Length: > 0 } name ? name : type.Name;
-
-    private static object? GetExportNamedArgument(INamedTypeSymbol type, string argumentName)
-    {
-        var attribute = FindExportAttribute(type);
-        if (attribute is null)
-        {
-            return null;
-        }
-
-        foreach (var argument in attribute.NamedArguments)
-        {
-            if (argument.Key == argumentName)
-            {
-                return argument.Value.Value;
-            }
-        }
-
-        return null;
-    }
+        ExportAttributeInfo.TryGet(type)?.Name is { Length: > 0 } name ? name : type.Name;
 }
