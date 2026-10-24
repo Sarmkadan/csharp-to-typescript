@@ -1,3 +1,5 @@
+using System;
+
 namespace CSharpToTypeScript;
 
 /// <summary>
@@ -68,6 +70,71 @@ public sealed class GeneratorOptions
     /// <returns>Resolved options with defaults for absent keys.</returns>
     public static GeneratorOptions FromAnalyzerConfig(System.Func<string, string?> tryGetValue)
     {
-        throw new System.NotImplementedException();
+        var options = new GeneratorOptions();
+
+        if (ReadValue(tryGetValue, nameof(OutputFile)) is string outputFile)
+        {
+            options.OutputFile = outputFile;
+        }
+
+        if (ReadEnum<PropertyNamingPolicy>(tryGetValue, nameof(NamingPolicy)) is PropertyNamingPolicy namingPolicy)
+        {
+            options.NamingPolicy = namingPolicy;
+        }
+
+        if (ReadEnum<EnumStyle>(tryGetValue, nameof(EnumStyle)) is EnumStyle enumStyle)
+        {
+            options.EnumStyle = enumStyle;
+        }
+
+        if (ReadBool(tryGetValue, nameof(NullableAsOptional)) is bool nullableAsOptional)
+        {
+            options.NullableAsOptional = nullableAsOptional;
+        }
+
+        if (ReadBool(tryGetValue, nameof(DateAsString)) is bool dateAsString)
+        {
+            options.DateAsString = dateAsString;
+        }
+
+        return options;
+    }
+
+    /// <summary>
+    /// Reads a trimmed, non-empty value for the given option name, or <c>null</c> when absent or blank.
+    /// </summary>
+    private static string? ReadValue(System.Func<string, string?> tryGetValue, string name)
+    {
+        var value = tryGetValue("build_property." + MsBuildPrefix + name);
+        if (value is null)
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        return trimmed.Length == 0 ? null : trimmed;
+    }
+
+    private static T? ReadEnum<T>(System.Func<string, string?> tryGetValue, string name)
+        where T : struct
+    {
+        var value = ReadValue(tryGetValue, name);
+        if (value is not null && System.Enum.TryParse<T>(value, ignoreCase: true, out var parsed))
+        {
+            return parsed;
+        }
+
+        return null;
+    }
+
+    private static bool? ReadBool(System.Func<string, string?> tryGetValue, string name)
+    {
+        var value = ReadValue(tryGetValue, name);
+        if (value is not null && bool.TryParse(value, out var parsed))
+        {
+            return parsed;
+        }
+
+        return null;
     }
 }
