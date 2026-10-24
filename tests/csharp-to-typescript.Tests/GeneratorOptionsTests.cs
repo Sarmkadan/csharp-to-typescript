@@ -175,6 +175,84 @@ public class GeneratorOptionsTests
     }
 
     [Fact]
+    public void FromAnalyzerConfig_EmptyDictionary_UsesDefaults()
+    {
+        var options = GeneratorOptions.FromAnalyzerConfig(_ => null);
+
+        Assert.Equal("Generated/types.ts", options.OutputFile);
+        Assert.Equal(PropertyNamingPolicy.CamelCase, options.NamingPolicy);
+        Assert.Equal(EnumStyle.StringUnion, options.EnumStyle);
+        Assert.False(options.NullableAsOptional);
+        Assert.True(options.DateAsString);
+        Assert.Null(options.ProjectDir);
+    }
+
+    [Fact]
+    public void FromAnalyzerConfig_BoolValueIsCaseInsensitive()
+    {
+        var values = new Dictionary<string, string>
+        {
+            ["build_property.CSharpToTypeScript_NullableAsOptional"] = "TRUE",
+            ["build_property.CSharpToTypeScript_DateAsString"] = "False",
+        };
+
+        var options = GeneratorOptions.FromAnalyzerConfig(key => values.TryGetValue(key, out var v) ? v : null);
+
+        Assert.True(options.NullableAsOptional);
+        Assert.False(options.DateAsString);
+    }
+
+    [Theory]
+    [InlineData("CSharpToTypeScript_NamingPolicy")]
+    [InlineData("CSharpToTypeScript_EnumStyle")]
+    [InlineData("CSharpToTypeScript_NullableAsOptional")]
+    [InlineData("CSharpToTypeScript_DateAsString")]
+    [InlineData("CSharpToTypeScript_OutputFile")]
+    public void Parse_WhitespaceOnlyValue_KeepsDefaultAndIsNotReported(string name)
+    {
+        var values = new Dictionary<string, string>
+        {
+            ["build_property." + name] = "   ",
+        };
+
+        var result = GeneratorOptions.Parse(key => values.TryGetValue(key, out var v) ? v : null);
+        var defaults = GeneratorOptions.Parse(_ => null).Options;
+
+        Assert.Empty(result.InvalidValues);
+        Assert.Equal(defaults.OutputFile, result.Options.OutputFile);
+        Assert.Equal(defaults.NamingPolicy, result.Options.NamingPolicy);
+        Assert.Equal(defaults.EnumStyle, result.Options.EnumStyle);
+        Assert.Equal(defaults.NullableAsOptional, result.Options.NullableAsOptional);
+        Assert.Equal(defaults.DateAsString, result.Options.DateAsString);
+    }
+
+    [Fact]
+    public void FromAnalyzerConfig_ProjectDir_IsPopulatedAndTrimmed()
+    {
+        var values = new Dictionary<string, string>
+        {
+            ["build_property.projectdir"] = "  /src/app/  ",
+        };
+
+        var options = GeneratorOptions.FromAnalyzerConfig(key => values.TryGetValue(key, out var v) ? v : null);
+
+        Assert.Equal("/src/app/", options.ProjectDir);
+    }
+
+    [Fact]
+    public void FromAnalyzerConfig_OutputFile_IsTrimmedAndBackslashesNormalised()
+    {
+        var values = new Dictionary<string, string>
+        {
+            ["build_property.CSharpToTypeScript_OutputFile"] = @"  Generated\nested\types.ts  ",
+        };
+
+        var options = GeneratorOptions.FromAnalyzerConfig(key => values.TryGetValue(key, out var v) ? v : null);
+
+        Assert.Equal("Generated/nested/types.ts", options.OutputFile);
+    }
+
+    [Fact]
     public void NamingPolicyConverter_NullName_Throws()
     {
         Assert.Throws<ArgumentNullException>(() => NamingPolicyConverter.Apply(null!, PropertyNamingPolicy.CamelCase));
