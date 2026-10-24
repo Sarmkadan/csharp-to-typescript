@@ -51,7 +51,7 @@ public sealed class TypeScriptGenerator : IIncrementalGenerator
             .Collect();
 
         var options = context.AnalyzerConfigOptionsProvider
-            .Select(static (provider, _) => GeneratorOptions.FromAnalyzerConfig(
+            .Select(static (provider, _) => GeneratorOptions.Parse(
                 key => provider.GlobalOptions.TryGetValue(key, out var value) ? value : null));
 
         var combined = exports
@@ -65,13 +65,25 @@ public sealed class TypeScriptGenerator : IIncrementalGenerator
     /// <summary>
     /// Expands the exported roots, emits one TypeScript file per output path and adds each as a generated C# source
     /// that exposes the path and content as constants. Any exception is reported as <see cref="OutputWriteFailedDiagnosticId"/>
-    /// instead of failing the consumer build.
+    /// instead of failing the consumer build. Invalid <c>CSharpToTypeScript_*</c> values are reported first as
+    /// <see cref="InvalidOptionDiagnosticId"/>, and the defaults they fell back to are used.
     /// </summary>
     private static void Generate(
         SourceProductionContext context,
         ImmutableArray<INamedTypeSymbol> exports,
-        GeneratorOptions options)
+        OptionsParseResult parseResult)
     {
+        foreach (var (key, rawValue, defaultValue) in parseResult.InvalidValues)
+        {
+            context.ReportDiagnostic(Diagnostics.Create(
+                Diagnostics.InvalidOption,
+                Location.None,
+                key,
+                rawValue,
+                defaultValue));
+        }
+
+        var options = parseResult.Options;
         var target = options.OutputFile;
 
         try

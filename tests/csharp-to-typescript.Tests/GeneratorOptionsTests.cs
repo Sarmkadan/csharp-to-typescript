@@ -98,6 +98,83 @@ public class GeneratorOptionsTests
     }
 
     [Fact]
+    public void Parse_NullLookup_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(() => GeneratorOptions.Parse(null!));
+    }
+
+    [Fact]
+    public void Parse_AllValid_ReportsNothing()
+    {
+        var values = new Dictionary<string, string>
+        {
+            ["build_property.CSharpToTypeScript_NamingPolicy"] = "snakecase",
+            ["build_property.CSharpToTypeScript_EnumStyle"] = "NumericEnum",
+            ["build_property.CSharpToTypeScript_NullableAsOptional"] = "true",
+            ["build_property.CSharpToTypeScript_DateAsString"] = "false",
+            ["build_property.CSharpToTypeScript_OutputFile"] = "src/types.ts",
+        };
+
+        var result = GeneratorOptions.Parse(key => values.TryGetValue(key, out var v) ? v : null);
+
+        Assert.Empty(result.InvalidValues);
+        Assert.Equal(PropertyNamingPolicy.SnakeCase, result.Options.NamingPolicy);
+        Assert.Equal(EnumStyle.NumericEnum, result.Options.EnumStyle);
+        Assert.True(result.Options.NullableAsOptional);
+        Assert.False(result.Options.DateAsString);
+        Assert.Equal("src/types.ts", result.Options.OutputFile);
+    }
+
+    [Fact]
+    public void Parse_AbsentValues_ReportsNothing()
+    {
+        var result = GeneratorOptions.Parse(_ => null);
+
+        Assert.Empty(result.InvalidValues);
+        Assert.Equal(PropertyNamingPolicy.CamelCase, result.Options.NamingPolicy);
+    }
+
+    [Fact]
+    public void Parse_InvalidValues_ReportsEachKeyWithRawValueAndDefault()
+    {
+        var values = new Dictionary<string, string>
+        {
+            ["build_property.CSharpToTypeScript_NamingPolicy"] = "PascalCase",
+            ["build_property.CSharpToTypeScript_EnumStyle"] = "99",
+            ["build_property.CSharpToTypeScript_NullableAsOptional"] = "yes",
+            ["build_property.CSharpToTypeScript_DateAsString"] = "false",
+            ["build_property.CSharpToTypeScript_OutputFile"] = "  bad\0file.ts  ",
+        };
+
+        var result = GeneratorOptions.Parse(key => values.TryGetValue(key, out var v) ? v : null);
+
+        Assert.Equal(
+            new[]
+            {
+                ("CSharpToTypeScript_OutputFile", "bad\0file.ts", "Generated/types.ts"),
+                ("CSharpToTypeScript_NamingPolicy", "PascalCase", "CamelCase"),
+                ("CSharpToTypeScript_EnumStyle", "99", "StringUnion"),
+                ("CSharpToTypeScript_NullableAsOptional", "yes", "False"),
+            },
+            result.InvalidValues);
+        Assert.Equal(PropertyNamingPolicy.CamelCase, result.Options.NamingPolicy);
+        Assert.False(result.Options.DateAsString);
+    }
+
+    [Fact]
+    public void FromAnalyzerConfig_InvalidBool_KeepsDefault()
+    {
+        var values = new Dictionary<string, string>
+        {
+            ["build_property.CSharpToTypeScript_DateAsString"] = "maybe",
+        };
+
+        var options = GeneratorOptions.FromAnalyzerConfig(key => values.TryGetValue(key, out var v) ? v : null);
+
+        Assert.True(options.DateAsString);
+    }
+
+    [Fact]
     public void NamingPolicyConverter_NullName_Throws()
     {
         Assert.Throws<ArgumentNullException>(() => NamingPolicyConverter.Apply(null!, PropertyNamingPolicy.CamelCase));

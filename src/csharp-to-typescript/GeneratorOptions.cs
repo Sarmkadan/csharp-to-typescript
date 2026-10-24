@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace CSharpToTypeScript;
 
@@ -125,7 +126,17 @@ public sealed class GeneratorOptions
     /// <param name="tryGetValue">Lookup delegate; keys are passed with the <c>build_property.</c> prefix.</param>
     /// <returns>Resolved options with defaults for absent keys.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="tryGetValue"/> is <see langword="null"/>.</exception>
-    public static GeneratorOptions FromAnalyzerConfig(System.Func<string, string?> tryGetValue)
+    public static GeneratorOptions FromAnalyzerConfig(System.Func<string, string?> tryGetValue) =>
+        Parse(tryGetValue).Options;
+
+    /// <summary>
+    /// Creates options from a flat key/value bag, like <see cref="FromAnalyzerConfig"/>, and also reports every
+    /// key whose value was present but could not be parsed. Such keys fall back to their default.
+    /// </summary>
+    /// <param name="tryGetValue">Lookup delegate; keys are passed with the <c>build_property.</c> prefix.</param>
+    /// <returns>The resolved options together with the invalid entries, in the order they were checked.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="tryGetValue"/> is <see langword="null"/>.</exception>
+    public static OptionsParseResult Parse(System.Func<string, string?> tryGetValue)
     {
         if (tryGetValue is null)
         {
@@ -133,11 +144,19 @@ public sealed class GeneratorOptions
         }
 
         var options = new GeneratorOptions();
+        var invalid = new List<(string Key, string RawValue, string Default)>();
 
         // Values read from MSBuild that fail validation are ignored and the default kept, the same as unparsable enums.
-        if (ReadValue(tryGetValue, nameof(OutputFile)) is string outputFile && IsValidOutputFile(outputFile))
+        if (ReadValue(tryGetValue, nameof(OutputFile)) is string outputFile)
         {
-            options.OutputFile = outputFile;
+            if (IsValidOutputFile(outputFile))
+            {
+                options.OutputFile = outputFile;
+            }
+            else
+            {
+                invalid.Add(InvalidEntry(nameof(OutputFile), outputFile, options.OutputFile));
+            }
         }
 
         // ProjectDir is a standard MSBuild property, not a CSharpToTypeScript_* one, so it is read by its raw key.
@@ -146,28 +165,34 @@ public sealed class GeneratorOptions
             options.ProjectDir = projectDir.Trim();
         }
 
-        if (ReadEnum<PropertyNamingPolicy>(tryGetValue, nameof(NamingPolicy)) is PropertyNamingPolicy namingPolicy)
+        if (ReadEnum<PropertyNamingPolicy>(tryGetValue, nameof(NamingPolicy), options.NamingPolicy, invalid) is PropertyNamingPolicy namingPolicy)
         {
             options.NamingPolicy = namingPolicy;
         }
 
-        if (ReadEnum<EnumStyle>(tryGetValue, nameof(EnumStyle)) is EnumStyle enumStyle)
+        if (ReadEnum<EnumStyle>(tryGetValue, nameof(EnumStyle), options.EnumStyle, invalid) is EnumStyle enumStyle)
         {
             options.EnumStyle = enumStyle;
         }
 
-        if (ReadBool(tryGetValue, nameof(NullableAsOptional)) is bool nullableAsOptional)
+        if (ReadBool(tryGetValue, nameof(NullableAsOptional), options.NullableAsOptional, invalid) is bool nullableAsOptional)
         {
             options.NullableAsOptional = nullableAsOptional;
         }
 
-        if (ReadBool(tryGetValue, nameof(DateAsString)) is bool dateAsString)
+        if (ReadBool(tryGetValue, nameof(DateAsString), options.DateAsString, invalid) is bool dateAsString)
         {
             options.DateAsString = dateAsString;
         }
 
-        return options;
+        return new OptionsParseResult(options, invalid);
     }
+
+    /// <summary>
+    /// Builds an invalid-value entry keyed by the MSBuild property name, e.g. <c>CSharpToTypeScript_NamingPolicy</c>.
+    /// </summary>
+    private static (string Key, string RawValue, string Default) InvalidEntry(string name, string rawValue, object defaultValue) =>
+        (MsBuildPrefix + name, rawValue, defaultValue.ToString() ?? string.Empty);
 
     /// <summary>
     /// Reads a trimmed, non-empty value for the given option name, or <c>null</c> when absent or blank.
@@ -191,28 +216,47 @@ public sealed class GeneratorOptions
     private static bool IsValidOutputFile(string? value) =>
         value is not null && !string.IsNullOrWhiteSpace(value) && value.IndexOfAny(System.IO.Path.GetInvalidPathChars()) < 0;
 
-    private static T? ReadEnum<T>(System.Func<string, string?> tryGetValue, string name)
+    private static T? ReadEnum<T>(
+        System.Func<string, string?> tryGetValue,
+        string name,
+        T defaultValue,
+        List<(string Key, string RawValue, string Default)> invalid)
         where T : struct
     {
         var value = ReadValue(tryGetValue, name);
-        if (value is not null
-            && System.Enum.TryParse<T>(value, ignoreCase: true, out var parsed)
+        if (value is null)
+        {
+            return null;
+        }
+
+        if (System.Enum.TryParse<T>(value, ignoreCase: true, out var parsed)
             && System.Enum.IsDefined(typeof(T), parsed))
         {
             return parsed;
         }
 
+        invalid.Add(InvalidEntry(name, value, defaultValue));
         return null;
     }
 
-    private static bool? ReadBool(System.Func<string, string?> tryGetValue, string name)
+    private static bool? ReadBool(
+        System.Func<string, string?> tryGetValue,
+        string name,
+        bool defaultValue,
+        List<(string Key, string RawValue, string Default)> invalid)
     {
         var value = ReadValue(tryGetValue, name);
-        if (value is not null && bool.TryParse(value, out var parsed))
+        if (value is null)
+        {
+            return null;
+        }
+
+        if (bool.TryParse(value, out var parsed))
         {
             return parsed;
         }
 
+        invalid.Add(InvalidEntry(name, value, defaultValue));
         return null;
     }
 }
